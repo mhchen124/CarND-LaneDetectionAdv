@@ -202,7 +202,7 @@ def drawing_back(undist, binary_warped, left_fitx, right_fitx, ploty, curvature,
     fontColor = (255, 255, 255)
     lineType = 2
 
-    cv2.putText(result, 'Curvature: ' + str(curvature),
+    cv2.putText(result, 'Lane Curvature: ' + str(curvature),
                 UpperLeftCornerOfText1,
                 font,
                 fontScale,
