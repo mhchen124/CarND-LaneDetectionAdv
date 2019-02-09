@@ -26,22 +26,16 @@ DEBUG = False
 PERSIST_TEMP_IMGS = False
 
 class Line():
-    count = 0
+
     def __init__(self):
-        # was the line detected in the last iteration?
-        self.detected = False
-        # x values of the last n fits of the line
-        self.recent_xfitted = []
-        #average x values of the fitted line over the last n iterations
-        self.bestx = None
-        #polynomial coefficients averaged over the last n iterations
-        self.best_fit = None
+        # current line detection flag
+        self.current_detected = False
         #polynomial coefficients for the most recent fit
         self.current_fit = [np.array([False])]
         #radius of curvature of the line in some units
-        self.radius_of_curvature = None
+        self.current_curverad = None
         #distance in meters of vehicle center from the line
-        self.line_base_pos = None
+        self.current_line_pos = None
         #difference in fit coefficients between last and new fits
         self.diffs = np.array([0,0,0], dtype='float')
         #x values for detected line pixels
@@ -49,17 +43,68 @@ class Line():
         #y values for detected line pixels
         self.ally = None
 
+class HighwayLane():
+
+    # Number of previous fits we remember
+    N = 3
+    f1 = (N - 1) / N
+    f2 = 1 / N
+
+    # was the line detected in the last iteration?
+    prev_detected = False
+    # average curvature of last n
+    prev_curverad = 1000
+    # average line position of last n
+    prev_line_pos = 2
+    # x values of the last n fits of the line
+    left_lastn_fittedx = []
+    right_lastn_fittedx = []
+    # average x values of the fitted line over the last n iterations
+    left_lastn_bestx = None
+    right_lastn_bestx = None
+    # polynomial coefficients averaged over the last n iterations
+    left_lastn_best_fit = None
+    right_lastn_best_fit = None
+
+    left_line = None
+    right_line = None
+
+    def __int__(self):
+        pass
+
+    def __int__(self, left, right):
+        self.left_line = left
+        self.right_line = right
+
+    def set_left_line(self, l):
+        self.left_line = l
+    def set_right_line(self, r):
+        self.right_line = r
+
+    def update_curverad(self, curverad):
+        self.prev_curverad = self.f1 * self.prev_curverad + self.f2 * curverad
+
+    def update_position(self, pos):
+        self.prev_line_pos = self.f1 * self.prev_line_pos + self.f2 * pos
+
+    def update_left_best_fit(self, fit):
+        self.lastn_best_fit = self.f1 * self.lastn_best_fit + self.f2 * fit
+
+
 def image_precessor1(img):
 
     img_row = img.shape[0]
     img_col = img.shape[1]
 
-    left_lane = Line()
-    right_lane = Line()
-
     if DEBUG:
         print("img_row: ", img_row)
         print("img_col: ", img_col)
+
+    left_lane = Line()
+    right_lane = Line()
+    my_lane = HighwayLane()
+    my_lane.set_left_line(left_lane)
+    my_lane.set_right_line(right_lane)
 
     if DEBUG:
         print("Undistorting input image...")
@@ -149,6 +194,7 @@ white_output = './output_images/project_video_result.mp4'
 
 def run_video_pipe(in_video_file, out_video_file):
     clip1 = VideoFileClip(in_video_file)
+    #clip1 = clip1.subclip(0, 5)
     white_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
     white_clip.write_videofile(out_video_file, audio=False)
 
