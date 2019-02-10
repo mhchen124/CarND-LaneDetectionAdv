@@ -9,9 +9,10 @@ import os
 from moviepy.editor import VideoFileClip
 from IPython.display import HTML
 
-from color_gradient_thre    import binarize
-from perspective            import persp_trans, srcPts, dstPts
-from lane_tracker           import find_lane_pixels, fit_polynomial, calculate_curvature, drawing_back, xm_per_pix, ym_per_pix
+from color_gradient_thre import binarize
+from perspective import persp_trans, srcPts, dstPts
+from lane_tracker import find_lane_pixels, fit_polynomial, calculate_curvature, \
+    drawing_back, xm_per_pix, ym_per_pix
 
 # Read back persisted parameters
 dist_pickle = pickle.load(open("dist_pickle.p", "rb"))
@@ -45,17 +46,35 @@ class Line():
 
 class HighwayLane():
 
-    # Number of previous fits we remember
+    # Number of previous iterations we remember
     N = 3
+
+    # Averaging factors
     f1 = (N - 1) / N
     f2 = 1 / N
 
+    # Image count
+    NumImagesProcessed = 0
+
+    # Some error tolerance parameters
+    LANE_WIDTH_ERROR = 1
+    CURVERAD_ERROR = 100
+    FIT_SQ_ERROR = 30
+
+    # Some constants
+    ym_per_pix = 30 / 720  # meters per pixel in y dimension
+    xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+
+    # previous image
+    prev_image = None
     # was the line detected in the last iteration?
     prev_detected = False
     # average curvature of last n
     prev_curverad = 1000
-    # average line position of last n
-    prev_line_pos = 2
+    # average car position away from the lane center in last n
+    prev_car_pos = 0
+    # previous lane avg width
+    prev_lane_width = 3.7
     # x values of the last n fits of the line
     left_lastn_fittedx = []
     right_lastn_fittedx = []
@@ -66,11 +85,10 @@ class HighwayLane():
     left_lastn_best_fit = None
     right_lastn_best_fit = None
 
-    left_line = None
-    right_line = None
 
     def __int__(self):
-        pass
+        self.left_line = None
+        self.right_line = None
 
     def __int__(self, left, right):
         self.left_line = left
@@ -81,15 +99,40 @@ class HighwayLane():
     def set_right_line(self, r):
         self.right_line = r
 
-    def update_curverad(self, curverad):
-        self.prev_curverad = self.f1 * self.prev_curverad + self.f2 * curverad
+    def set_prev_image(self, img):
+        HighwayLane.prev_image = img
+    def get_prev_image(self):
+        return HighwayLane.prev_image
 
-    def update_position(self, pos):
-        self.prev_line_pos = self.f1 * self.prev_line_pos + self.f2 * pos
+    def set_curverad(self, curverad):
+        HighwayLane.prev_curverad = curverad
+    def update_curverad(self, curverad):
+        HighwayLane.prev_curverad = HighwayLane.f1 * HighwayLane.prev_curverad \
+                                    + HighwayLane.f2 * curverad
+
+    def set_car_position(self, pos):
+        HighwayLane.prev_car_pos = pos
+    def update_car_position(self, pos):
+        HighwayLane.prev_car_pos = HighwayLane.f1 * HighwayLane.prev_car_pos \
+                                   + HighwayLane.f2 * pos
+
+    def update_lane_width(self, width):
+        HighwayLane.prev_lane_width = HighwayLane.f1 * HighwayLane.prev_lane_width \
+                                      + HighwayLane.f2 * width
 
     def update_left_best_fit(self, fit):
-        self.lastn_best_fit = self.f1 * self.lastn_best_fit + self.f2 * fit
+        HighwayLane.lastn_best_fit = HighwayLane.f1 * HighwayLane.lastn_best_fit \
+                                     + HighwayLane.f2 * fit
 
+    def set_lane_detected(self, state):
+        HighwayLane.prev_detected = state
+    def lane_detected(self):
+        return HighwayLane.prev_detected
+
+    def line_pos_isvalid(self, left, right):
+        width = (right - left) * xm_per_pix
+        return ( (left > 0) & (right > 0) & (right > left)
+                 & (abs(width - HighwayLane.prev_lane_width) < HighwayLane.LANE_WIDTH_ERROR) )
 
 def image_precessor1(img):
 
@@ -105,6 +148,7 @@ def image_precessor1(img):
     my_lane = HighwayLane()
     my_lane.set_left_line(left_lane)
     my_lane.set_right_line(right_lane)
+
 
     if DEBUG:
         print("Undistorting input image...")
@@ -129,26 +173,45 @@ def image_precessor1(img):
 
     if DEBUG:
         print("Detect lane & find lane boundary ...")
-    out_img, leftx, lefty, rightx, righty, ploty, lane_center = find_lane_pixels(binary_warped)
+    out_img, leftx, lefty, rightx, righty, ploty, leftx_base, rightx_base = find_lane_pixels(binary_warped)
 
-    if DEBUG:
-        print("Curve fitting based on lane pixels ...")
-    out_img, left_fitx, right_fitx = fit_polynomial(binary_warped, leftx, lefty, rightx, righty, ploty)
+    # Verify lane width constraint
+    if my_lane.line_pos_isvalid(leftx_base, rightx_base):
 
-    if DEBUG:
-        print("Computing curvature ...")
-    left_curverad, right_curverad = calculate_curvature(binary_warped, leftx, lefty, rightx, righty, ploty)
+        my_lane.update_lane_width((rightx_base-leftx_base)*xm_per_pix)
 
-    car_pos = ((out_img.shape[1] // 2) - lane_center) * xm_per_pix
-    avg_curverad = (left_curverad + right_curverad) / 2
-    if DEBUG:
-        print("Car position: ", car_pos, 'M')
-        print("Curvature: ", avg_curverad, 'M')
+        if DEBUG:
+            print("Curve fitting based on lane pixels ...")
+        out_img, left_fitx, right_fitx = fit_polynomial(binary_warped, leftx, lefty, rightx, righty, ploty)
 
-    result_img = drawing_back(img, binary_warped, left_fitx, right_fitx, ploty, avg_curverad, car_pos)
+        if DEBUG:
+            print("Computing curvature ...")
+        left_curverad, right_curverad = calculate_curvature(binary_warped, leftx, lefty, rightx, righty, ploty)
+
+        lane_center = (leftx_base + rightx_base) / 2
+        car_pos = ((out_img.shape[1] // 2) - lane_center) * xm_per_pix
+        avg_curverad = (left_curverad + right_curverad) / 2
+        if DEBUG:
+            print("Car position: ", car_pos, 'M')
+            print("Curvature: ", avg_curverad, 'M')
+
+        result_img = drawing_back(img, binary_warped, left_fitx, right_fitx, ploty, avg_curverad, car_pos)
+        my_lane.set_lane_detected(True)
+        my_lane.set_prev_image(result_img)
+
+    else:
+        if DEBUG:
+            print("#### Lane width constrain violated! #####")
+        if my_lane.prev_detected:
+            result_img = my_lane.get_prev_image()
 
     if PERSIST_TEMP_IMGS:
         cv2.imwrite('./output_images/result.jpg', result_img)
+
+    HighwayLane.NumImagesProcessed += 1
+    
+    if DEBUG:
+        print("Total image processed so far: " + HighwayLane.NumImagesProcessed)
 
     return result_img
 
@@ -194,7 +257,7 @@ white_output = './output_images/project_video_result.mp4'
 
 def run_video_pipe(in_video_file, out_video_file):
     clip1 = VideoFileClip(in_video_file)
-    #clip1 = clip1.subclip(0, 5)
+    #clip1 = clip1.subclip(20, 25)
     white_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
     white_clip.write_videofile(out_video_file, audio=False)
 
