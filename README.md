@@ -177,3 +177,9 @@ The pipeline works well on the "project_video.mp4", kine marginally well on "cha
 The major challenge is to get a good binary image where lane-line are clear and reliable. This is kind difficult, especially for tough ones like "harder_challenge_video.mp4". If more time
 are available I'd better use a-prior information to guide the tracking and reduce errors.
 
+The initial version has some problems - the result video has a few image frames where
+the lane tracking was not correct. I reworked on the code by introducing a HighwayLane
+class and a Line class to help with better cross-frame performance tracking. Currently only
+a simple "lane width" constraint is enforced and the result improved and there is no
+more incorrect frames. If have more time, other constraints can be added to handle more complicated
+lane situations.
