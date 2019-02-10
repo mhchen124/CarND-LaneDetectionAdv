@@ -107,9 +107,7 @@ def find_lane_pixels(binary_warped):
     rightx = nonzerox[right_lane_inds]
     righty = nonzeroy[right_lane_inds]
 
-    lane_center = (leftx_base + rightx_base) / 2
-
-    return img, leftx, lefty, rightx, righty, ploty, lane_center
+    return img, leftx, lefty, rightx, righty, ploty, leftx_base, rightx_base
 
 
 def fit_polynomial(binary_warped, leftx, lefty, rightx, righty, ploty, persist=False):
@@ -224,7 +222,7 @@ def drawing_back(undist, binary_warped, left_fitx, right_fitx, ploty, curvature,
     return result
 
 # Find our lane pixels first
-out_img, leftx, lefty, rightx, righty, ploty, lane_center = find_lane_pixels(binary_warped)
+out_img, leftx, lefty, rightx, righty, ploty, leftx_base, rightx_base = find_lane_pixels(binary_warped)
 
 # Curve fitting
 out_img, left_fitx, right_fitx = fit_polynomial(binary_warped, leftx, lefty, rightx, righty, ploty)
@@ -233,6 +231,7 @@ out_img, left_fitx, right_fitx = fit_polynomial(binary_warped, leftx, lefty, rig
 left_curverad, right_curverad = calculate_curvature(binary_warped, leftx, lefty, rightx, righty, ploty)
 
 # Calculation car position and avg curvature
+lane_center = (leftx_base + rightx_base) / 2
 car_pos = ((out_img.shape[1] // 2) - lane_center) * xm_per_pix
 avg_curverad = (left_curverad + right_curverad) / 2
 
